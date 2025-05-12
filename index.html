@@ -2,10 +2,22 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>レースゲーム 完全版（画像なし）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>レースゲーム（スマホ対応）</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #000; touch-action: none; }
-    canvas { display: block; margin: 0 auto; background: #444; touch-action: none; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: calc(100vh - 100px);
+      background: #444;
+    }
     #overlay {
       position: absolute;
       top: 0; left: 0; width: 100%; height: 100%;
@@ -32,10 +44,33 @@
     }
     #result h2 { margin-bottom: 10px; }
     #result p { margin: 4px 0; font-size: 16px; }
+    #controls {
+      position: absolute;
+      bottom: 10px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      z-index: 5;
+    }
+    .control-button {
+      width: 60px;
+      height: 60px;
+      font-size: 32px;
+      margin: 0 20px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: 2px solid white;
+    }
   </style>
 </head>
 <body>
-<canvas id="gameCanvas" width="400" height="600"></canvas>
+<canvas id="gameCanvas"></canvas>
+
+<div id="controls">
+  <button class="control-button" id="leftBtn">◀</button>
+  <button class="control-button" id="rightBtn">▶</button>
+</div>
 
 <div id="overlay">
   <h1>レーシング・チャレンジ</h1>
@@ -59,186 +94,214 @@
 <audio id="crashSound" src="https://cdn.pixabay.com/audio/2022/03/31/audio_b80c70b9c1.mp3"></audio>
 
 <script>
-  const canvas = document.getElementById("gameCanvas");
-  const ctx = canvas.getContext("2d");
-  const overlay = document.getElementById("overlay");
-  const restartBtn = document.getElementById("restartBtn");
-  const bgm = document.getElementById("bgm");
-  const crashSound = document.getElementById("crashSound");
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const overlay = document.getElementById("overlay");
+const restartBtn = document.getElementById("restartBtn");
+const bgm = document.getElementById("bgm");
+const crashSound = document.getElementById("crashSound");
+const leftBtn = document.getElementById("leftBtn");
+const rightBtn = document.getElementById("rightBtn");
 
-  const roadWidth = 200;
-  const roadX = (canvas.width - roadWidth) / 2;
-  const playerWidth = 40;
-  const playerHeight = 70;
-  let playerX, playerY;
-  let leftPressed = false;
-  let rightPressed = false;
-  let touchStartX = null;
-  let obstacles = [];
-  let score = 0;
-  let highScore = localStorage.getItem("highScore") || 0;
-  let speed = 4;
-  let obstacleRate = 0.03;
-  let difficulty = "normal";
-  let bgOffset = 0;
-  let gameOver = false;
-  let gameStarted = false;
-  let explosionFrame = 0;
-  let timer = 60;
-  let timerId = null;
+let canvasWidth = window.innerWidth;
+let canvasHeight = window.innerHeight - 100;
 
-  function getRank(score) {
-    if (score >= 1000) return { rank: "S", message: "神業！", emoji: "🏆" };
-    if (score >= 700) return { rank: "A", message: "素晴らしい！", emoji: "🥇" };
-    if (score >= 400) return { rank: "B", message: "いい感じ！", emoji: "🥈" };
-    if (score >= 200) return { rank: "C", message: "まずまず！", emoji: "🥉" };
-    return { rank: "D", message: "まだまだこれから！", emoji: "😅" };
+function resizeCanvas() {
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+}
+window.addEventListener("resize", () => {
+  canvasWidth = window.innerWidth;
+  canvasHeight = window.innerHeight - 100;
+  resizeCanvas();
+});
+resizeCanvas();
+
+const roadWidth = Math.min(canvasWidth * 0.5, 300);
+const roadX = (canvas.width - roadWidth) / 2;
+const playerWidth = 40;
+const playerHeight = 70;
+let playerX, playerY;
+let leftPressed = false;
+let rightPressed = false;
+let touchStartX = null;
+let obstacles = [];
+let score = 0;
+let highScore = localStorage.getItem("highScore") || 0;
+let speed = 4;
+let obstacleRate = 0.03;
+let difficulty = "normal";
+let bgOffset = 0;
+let gameOver = false;
+let gameStarted = false;
+let explosionFrame = 0;
+let timer = 60;
+let timerId = null;
+
+function getRank(score) {
+  if (score >= 1000) return { rank: "S", message: "神業！", emoji: "🏆" };
+  if (score >= 700) return { rank: "A", message: "素晴らしい！", emoji: "🥇" };
+  if (score >= 400) return { rank: "B", message: "いい感じ！", emoji: "🥈" };
+  if (score >= 200) return { rank: "C", message: "まずまず！", emoji: "🥉" };
+  return { rank: "D", message: "まだまだこれから！", emoji: "😅" };
+}
+
+function initGame() {
+  document.getElementById("result").style.display = "none";
+  playerX = canvas.width / 2 - playerWidth / 2;
+  playerY = canvas.height - playerHeight - 20;
+  bgOffset = 0;
+  obstacles = [];
+  score = 0;
+  explosionFrame = 0;
+  gameOver = false;
+  gameStarted = true;
+  timer = 60;
+  restartBtn.style.display = "none";
+  overlay.style.display = "none";
+
+  if (difficulty === "easy") {
+    speed = 3;
+    obstacleRate = 0.015;
+  } else if (difficulty === "normal") {
+    speed = 4;
+    obstacleRate = 0.03;
+  } else if (difficulty === "hard") {
+    speed = 5.5;
+    obstacleRate = 0.05;
   }
 
-  function initGame() {
-    document.getElementById("result").style.display = "none";
-    playerX = canvas.width / 2 - playerWidth / 2;
-    playerY = canvas.height - playerHeight - 20;
-    bgOffset = 0;
-    obstacles = [];
-    score = 0;
-    explosionFrame = 0;
-    gameOver = false;
-    gameStarted = true;
-    timer = 60;
-    restartBtn.style.display = "none";
-    overlay.style.display = "none";
+  bgm.currentTime = 0;
+  bgm.play();
+  timerId = setInterval(() => { if (--timer <= 0) endGame("Time's up!"); }, 1000);
+  gameLoop();
+}
 
-    if (difficulty === "easy") { speed = 3; obstacleRate = 0.02; }
-    else if (difficulty === "normal") { speed = 4; obstacleRate = 0.03; }
-    else if (difficulty === "hard") { speed = 5.5; obstacleRate = 0.05; }
-
-    bgm.currentTime = 0;
-    bgm.play();
-    timerId = setInterval(() => { if (--timer <= 0) endGame("Time's up!"); }, 1000);
-    gameLoop();
+function endGame() {
+  if (!gameOver) {
+    crashSound.play();
+    bgm.pause();
+    clearInterval(timerId);
+    gameOver = true;
+    if (score > highScore) {
+      localStorage.setItem("highScore", score);
+      highScore = score;
+    }
+    setTimeout(() => {
+      document.getElementById("resultScore").innerText = `スコア: ${score}`;
+      document.getElementById("resultHighScore").innerText = `ハイスコア: ${highScore}`;
+      document.getElementById("resultDifficulty").innerText = `難易度: ${difficulty.toUpperCase()}`;
+      const result = getRank(score);
+      document.getElementById("resultRank").innerText = `${result.emoji} ランク: ${result.rank} - ${result.message}`;
+      document.getElementById("result").style.display = "block";
+      overlay.style.display = "flex";
+    }, 1200);
   }
+}
 
-  function endGame(message = "Game Over") {
-    if (!gameOver) {
-      crashSound.play();
-      bgm.pause();
-      clearInterval(timerId);
-      gameOver = true;
-      if (score > highScore) {
-        localStorage.setItem("highScore", score);
-        highScore = score;
-      }
-      setTimeout(() => {
-        document.getElementById("resultScore").innerText = `スコア: ${score}`;
-        document.getElementById("resultHighScore").innerText = `ハイスコア: ${highScore}`;
-        document.getElementById("resultDifficulty").innerText = `難易度: ${difficulty.toUpperCase()}`;
-        const result = getRank(score);
-        document.getElementById("resultRank").innerText = `${result.emoji} ランク: ${result.rank} - ${result.message}`;
-        document.getElementById("result").style.display = "block";
-        overlay.style.display = "flex";
-      }, 1200);
+function drawBackground() {
+  ctx.fillStyle = "#333";
+  ctx.fillRect(roadX, 0, roadWidth, canvas.height);
+  ctx.strokeStyle = "#aaa";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([15, 20]);
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, -canvas.height + bgOffset);
+  ctx.lineTo(canvas.width / 2, canvas.height * 2 + bgOffset);
+  ctx.stroke();
+}
+
+function drawPlayer() {
+  ctx.fillStyle = "lime";
+  ctx.fillRect(playerX, playerY, playerWidth, playerHeight);
+}
+
+function drawObstacles() {
+  ctx.fillStyle = "red";
+  for (let obs of obstacles) {
+    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+  }
+}
+
+function updateObstacles() {
+  for (let obs of obstacles) obs.y += speed;
+  obstacles = obstacles.filter(obs => obs.y < canvas.height);
+  if (Math.random() < obstacleRate) {
+    const width = 40, height = 60;
+    const x = roadX + Math.random() * (roadWidth - width);
+    obstacles.push({ x, y: -height, width, height });
+  }
+}
+
+function checkCollision() {
+  for (let obs of obstacles) {
+    if (
+      playerX < obs.x + obs.width &&
+      playerX + playerWidth > obs.x &&
+      playerY < obs.y + obs.height &&
+      playerY + playerHeight > obs.y
+    ) {
+      endGame("クラッシュ！");
     }
   }
+}
 
-  function drawBackground() {
-    ctx.fillStyle = "#333";
-    ctx.fillRect(roadX, 0, roadWidth, canvas.height);
-    ctx.strokeStyle = "#aaa";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([15, 20]);
-    ctx.beginPath();
-    ctx.moveTo(canvas.width / 2, -canvas.height + bgOffset);
-    ctx.lineTo(canvas.width / 2, canvas.height * 2 + bgOffset);
-    ctx.stroke();
+function drawScore() {
+  ctx.fillStyle = "white";
+  ctx.font = "18px sans-serif";
+  ctx.fillText("Score: " + score, 10, 30);
+  ctx.fillText("High: " + highScore, 10, 55);
+  ctx.fillText("Time: " + timer + "s", canvas.width - 100, 30);
+}
+
+function gameLoop() {
+  if (!gameStarted) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!gameOver) {
+    bgOffset += speed;
+    if (bgOffset > 35) bgOffset = 0;
+    drawBackground();
+    drawPlayer();
+    updateObstacles();
+    drawObstacles();
+    checkCollision();
+    drawScore();
+    if (leftPressed && playerX > roadX) playerX -= 5;
+    if (rightPressed && playerX < roadX + roadWidth - playerWidth) playerX += 5;
+    score++;
+    requestAnimationFrame(gameLoop);
   }
+}
 
-  function drawPlayer() {
-    ctx.fillStyle = "lime";
-    ctx.fillRect(playerX, playerY, playerWidth, playerHeight);
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") leftPressed = true;
+  if (e.key === "ArrowRight") rightPressed = true;
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "ArrowLeft") leftPressed = false;
+  if (e.key === "ArrowRight") rightPressed = false;
+});
+canvas.addEventListener("touchstart", e => { touchStartX = e.touches[0].clientX; });
+canvas.addEventListener("touchmove", e => {
+  if (!touchStartX) return;
+  const diff = e.touches[0].clientX - touchStartX;
+  if (Math.abs(diff) > 30) {
+    if (diff > 0 && playerX < roadX + roadWidth - playerWidth) playerX += 10;
+    else if (diff < 0 && playerX > roadX) playerX -= 10;
+    touchStartX = null;
   }
+});
+canvas.addEventListener("touchend", () => { touchStartX = null; });
 
-  function drawObstacles() {
-    ctx.fillStyle = "red";
-    for (let obs of obstacles) {
-      ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-    }
-  }
+leftBtn.addEventListener("touchstart", () => { leftPressed = true; });
+leftBtn.addEventListener("touchend", () => { leftPressed = false; });
+rightBtn.addEventListener("touchstart", () => { rightPressed = true; });
+rightBtn.addEventListener("touchend", () => { rightPressed = false; });
 
-  function updateObstacles() {
-    for (let obs of obstacles) obs.y += speed;
-    obstacles = obstacles.filter(obs => obs.y < canvas.height);
-    if (Math.random() < obstacleRate) {
-      const width = 40, height = 60;
-      const x = roadX + Math.random() * (roadWidth - width);
-      obstacles.push({ x, y: -height, width, height });
-    }
-  }
-
-  function checkCollision() {
-    for (let obs of obstacles) {
-      if (
-        playerX < obs.x + obs.width &&
-        playerX + playerWidth > obs.x &&
-        playerY < obs.y + obs.height &&
-        playerY + playerHeight > obs.y
-      ) {
-        endGame("クラッシュ！");
-      }
-    }
-  }
-
-  function drawScore() {
-    ctx.fillStyle = "white";
-    ctx.font = "18px sans-serif";
-    ctx.fillText("Score: " + score, 10, 30);
-    ctx.fillText("High: " + highScore, 10, 55);
-    ctx.fillText("Time: " + timer + "s", canvas.width - 100, 30);
-  }
-
-  function gameLoop() {
-    if (!gameStarted) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!gameOver) {
-      bgOffset += speed;
-      if (bgOffset > 35) bgOffset = 0;
-      drawBackground();
-      drawPlayer();
-      updateObstacles();
-      drawObstacles();
-      checkCollision();
-      drawScore();
-      if ((leftPressed) && playerX > roadX) playerX -= 5;
-      if ((rightPressed) && playerX < roadX + roadWidth - playerWidth) playerX += 5;
-      score++;
-      requestAnimationFrame(gameLoop);
-    }
-  }
-
-  document.addEventListener("keydown", e => {
-    if (e.key === "ArrowLeft") leftPressed = true;
-    if (e.key === "ArrowRight") rightPressed = true;
-  });
-  document.addEventListener("keyup", e => {
-    if (e.key === "ArrowLeft") leftPressed = false;
-    if (e.key === "ArrowRight") rightPressed = false;
-  });
-  canvas.addEventListener("touchstart", e => { touchStartX = e.touches[0].clientX; });
-  canvas.addEventListener("touchmove", e => {
-    if (!touchStartX) return;
-    const diff = e.touches[0].clientX - touchStartX;
-    if (Math.abs(diff) > 30) {
-      if (diff > 0 && playerX < roadX + roadWidth - playerWidth) playerX += 10;
-      else if (diff < 0 && playerX > roadX) playerX -= 10;
-      touchStartX = null;
-    }
-  });
-  canvas.addEventListener("touchend", () => { touchStartX = null; });
-
-  document.querySelector(".easy").onclick = () => { difficulty = "easy"; initGame(); };
-  document.querySelector(".normal").onclick = () => { difficulty = "normal"; initGame(); };
-  document.querySelector(".hard").onclick = () => { difficulty = "hard"; initGame(); };
-  restartBtn.addEventListener("click", initGame);
+document.querySelector(".easy").onclick = () => { difficulty = "easy"; initGame(); };
+document.querySelector(".normal").onclick = () => { difficulty = "normal"; initGame(); };
+document.querySelector(".hard").onclick = () => { difficulty = "hard"; initGame(); };
+restartBtn.addEventListener("click", initGame);
 </script>
 </body>
 </html>
